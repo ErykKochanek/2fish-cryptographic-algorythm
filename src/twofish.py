@@ -59,7 +59,7 @@ Q1 = _build_q(
     [0x2, 0x8, 0xB, 0xD, 0xF, 0x7, 0x6, 0xE, 0x3, 0x1, 0x9, 0x4, 0x0, 0xA, 0xC, 0x5],
     [0x1, 0xE, 0x2, 0xB, 0x4, 0xC, 0x3, 0x7, 0x6, 0xD, 0xA, 0x5, 0xF, 0x9, 0x0, 0x8],
     [0x4, 0xC, 0x7, 0x5, 0x1, 0x6, 0x9, 0xA, 0x0, 0xE, 0xD, 0x8, 0x2, 0xB, 0x3, 0xF],
-    [0xB, 0x9, 0x5, 0x1, 0xC, 0x3, 0xD, 0xE, 0x6, 0x4, 0x7, 0xF, 0x2, 0x0, 0x8, 0xA]
+    [0xB, 0x9, 0x5, 0x1, 0xC, 0x3, 0xD, 0xE, 0x6, 0x4, 0x7, 0xF, 0x2, 0x0, 0x8, xA]
 )
 
 
@@ -109,11 +109,24 @@ class Twofish:
     """Profesjonalna implementacja algorytmu kryptograficznego Twofish."""
 
     def __init__(self, key: bytes):
-        """Inicjalizacja szyfru. Klucz musi mieć 16, 24 lub 32 bajty."""
-        if len(key) not in (16, 24, 32):
-            raise ValueError("Klucz musi mieć długość 128, 192 lub 256 bitów (16, 24 lub 32 bajty).")
+        """
+        Inicjalizacja szyfru.
+        Automatycznie dopasowuje i uzupełnia klucz zerami do 16, 24 lub 32 bajtów.
+        """
+        key_bytes = list(key)
+        length = len(key_bytes)
 
-        self.K, self.S = self._generate_subkeys(list(key))
+        # Integracja logiki dopasowania klucza (padding klucza zerami)
+        if length <= 16:
+            padded_key = key_bytes + [0] * (16 - length)
+        elif length <= 24:
+            padded_key = key_bytes + [0] * (24 - length)
+        elif length <= 32:
+            padded_key = key_bytes + [0] * (32 - length)
+        else:
+            raise ValueError("Klucz nie może być dłuższy niż 32 bajty (256 bitów).")
+
+        self.K, self.S = self._generate_subkeys(padded_key)
 
     def _generate_subkeys(self, M_bytes):
         k = len(M_bytes) // 8

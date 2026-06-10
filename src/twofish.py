@@ -1,0 +1,233 @@
+# src/twofish.py
+import os
+
+# ==========================================
+# 1. TABELE I ZMIENNE MATEMATYCZNE
+# ==========================================
+mds = [
+    [0x01, 0xEF, 0x5B, 0x5B],
+    [0x5B, 0xEF, 0xEF, 0x01],
+    [0xEF, 0x5B, 0x01, 0xEF],
+    [0xEF, 0x01, 0xEF, 0x5B]
+]
+
+rs = [
+    [0x01, 0xA4, 0x55, 0x87, 0x5A, 0x58, 0xDB, 0x9E],
+    [0xA4, 0x56, 0x82, 0xF3, 0x1E, 0xC6, 0x68, 0xE5],
+    [0x02, 0xA1, 0xFC, 0xC1, 0x47, 0xAE, 0x3D, 0x19],
+    [0xA4, 0x55, 0x87, 0x5A, 0x58, 0xDB, 0x9E, 0x03]
+]
+
+
+def rol(number, shift, bitLength=32):
+    shift %= bitLength
+    return ((number << shift) | (number >> (bitLength - shift))) & 0xFFFFFFFF
+
+
+def ror(number, shift, bitLength=32):
+    shift %= bitLength
+    return ((number >> shift) | (number << (bitLength - shift))) & 0xFFFFFFFF
+
+
+def ror4(x):
+    return ((x >> 1) | (x << 3)) & 0xF
+
+
+def _build_q(t0, t1, t2, t3):
+    table = []
+    for x in range(256):
+        a0 = x >> 4
+        b0 = x & 0xF
+        a1 = a0 ^ b0
+        b1 = (a0 ^ ror4(b0) ^ ((8 * a0) & 0xF)) & 0xF
+        a2, b2 = t0[a1], t1[b1]
+        a3 = a2 ^ b2
+        b3 = (a2 ^ ror4(b2) ^ ((8 * a2) & 0xF)) & 0xF
+        a4, b4 = t2[a3], t3[b3]
+        table.append((b4 << 4) | a4)
+    return table
+
+
+Q0 = _build_q(
+    [0x8, 0x1, 0x7, 0xD, 0x6, 0xF, 0x3, 0x2, 0x0, 0xB, 0x5, 0x9, 0xE, 0xC, 0xA, 0x4],
+    [0xE, 0xC, 0xB, 0x8, 0x1, 0x2, 0x3, 0x5, 0xF, 0x4, 0xA, 0x6, 0x7, 0x0, 0x9, 0xD],
+    [0xB, 0xA, 0x5, 0xE, 0x6, 0xD, 0x9, 0x0, 0xC, 0x8, 0xF, 0x3, 0x2, 0x4, 0x7, 0x1],
+    [0xD, 0x7, 0xF, 0x4, 0x1, 0x2, 0x6, 0xE, 0x9, 0xB, 0x3, 0x0, 0x8, 0x5, 0xC, 0xA]
+)
+
+Q1 = _build_q(
+    [0x2, 0x8, 0xB, 0xD, 0xF, 0x7, 0x6, 0xE, 0x3, 0x1, 0x9, 0x4, 0x0, 0xA, 0xC, 0x5],
+    [0x1, 0xE, 0x2, 0xB, 0x4, 0xC, 0x3, 0x7, 0x6, 0xD, 0xA, 0x5, 0xF, 0x9, 0x0, 0x8],
+    [0x4, 0xC, 0x7, 0x5, 0x1, 0x6, 0x9, 0xA, 0x0, 0xE, 0xD, 0x8, 0x2, 0xB, 0x3, 0xF],
+    [0xB, 0x9, 0x5, 0x1, 0xC, 0x3, 0xD, 0xE, 0x6, 0x4, 0x7, 0xF, 0x2, 0x0, 0x8, 0xA]
+)
+
+
+def gf_mult(a, b, poly):
+    res = 0
+    while a and b:
+        if b & 1: res ^= a
+        a <<= 1
+        if a & 0x100: a ^= poly
+        b >>= 1
+    return res
+
+
+def matrix_mult(matrix, vector, poly):
+    result = []
+    for row in matrix:
+        val = 0
+        for mat_byte, vec_byte in zip(row, vector):
+            val ^= gf_mult(mat_byte, vec_byte, poly)
+        result.append(val)
+    return result
+
+
+def h(X, L):
+    k = len(L)
+    y = [(X >> (8 * i)) & 0xFF for i in range(4)]
+    l = [[(L[i] >> (8 * j)) & 0xFF for j in range(4)] for i in range(k)]
+
+    if k == 4:
+        y[0], y[1], y[2], y[3] = Q1[y[0]] ^ l[3][0], Q0[y[1]] ^ l[3][1], Q0[y[2]] ^ l[3][2], Q1[y[3]] ^ l[3][3]
+    if k >= 3:
+        y[0], y[1], y[2], y[3] = Q1[y[0]] ^ l[2][0], Q1[y[1]] ^ l[2][1], Q0[y[2]] ^ l[2][2], Q0[y[3]] ^ l[2][3]
+
+    y[0] = Q1[Q0[Q0[y[0]] ^ l[1][0]] ^ l[0][0]]
+    y[1] = Q0[Q0[Q1[y[1]] ^ l[1][1]] ^ l[0][1]]
+    y[2] = Q1[Q1[Q0[y[2]] ^ l[1][2]] ^ l[0][2]]
+    y[3] = Q0[Q1[Q1[y[3]] ^ l[1][3]] ^ l[0][3]]
+
+    z = matrix_mult(mds, y, 0x169)
+    return z[0] | (z[1] << 8) | (z[2] << 16) | (z[3] << 24)
+
+
+# ==========================================
+# 2. GŁÓWNA KLASA ALGORYTMU
+# ==========================================
+class Twofish:
+    """Profesjonalna implementacja algorytmu kryptograficznego Twofish."""
+
+    def __init__(self, key: bytes):
+        """Inicjalizacja szyfru. Klucz musi mieć 16, 24 lub 32 bajty."""
+        if len(key) not in (16, 24, 32):
+            raise ValueError("Klucz musi mieć długość 128, 192 lub 256 bitów (16, 24 lub 32 bajty).")
+
+        self.K, self.S = self._generate_subkeys(list(key))
+
+    def _generate_subkeys(self, M_bytes):
+        k = len(M_bytes) // 8
+        Me, Mo = [], []
+        for i in range(k):
+            Me.append(
+                M_bytes[8 * i] | (M_bytes[8 * i + 1] << 8) | (M_bytes[8 * i + 2] << 16) | (M_bytes[8 * i + 3] << 24))
+            Mo.append(M_bytes[8 * i + 4] | (M_bytes[8 * i + 5] << 8) | (M_bytes[8 * i + 6] << 16) | (
+                        M_bytes[8 * i + 7] << 24))
+
+        S = []
+        for i in range(k):
+            m_slice = M_bytes[8 * i: 8 * i + 8]
+            r = matrix_mult(rs, m_slice, 0x14D)
+            S.append(r[0] | (r[1] << 8) | (r[2] << 16) | (r[3] << 24))
+        S = S[::-1]
+
+        K = []
+        rho = 0x01010101
+        for i in range(20):
+            Ai = h((2 * i * rho) % (2 ** 32), Me)
+            Bi = rol(h(((2 * i + 1) * rho) % (2 ** 32), Mo), 8)
+            K.append((Ai + Bi) % (2 ** 32))
+            K.append(rol((Ai + 2 * Bi) % (2 ** 32), 9))
+
+        return K, S
+
+    def _F(self, R0, R1, r):
+        T0 = h(R0, self.S)
+        T1 = h(rol(R1, 8), self.S)
+        F0 = (T0 + T1 + self.K[2 * r + 8]) % (2 ** 32)
+        F1 = (T0 + 2 * T1 + self.K[2 * r + 9]) % (2 ** 32)
+        return F0, F1
+
+    def _encrypt_block(self, plaintext_bytes: bytes) -> bytes:
+        P = [sum([plaintext_bytes[4 * i + j] << (8 * j) for j in range(4)]) for i in range(4)]
+        R = [P[i] ^ self.K[i] for i in range(4)]
+
+        for r in range(16):
+            F0, F1 = self._F(R[0], R[1], r)
+            R_next_0 = ror(R[2] ^ F0, 1)
+            R_next_1 = rol(R[3], 1) ^ F1
+            R[2], R[3] = R[0], R[1]
+            R[0], R[1] = R_next_0, R_next_1
+
+        R[0], R[1], R[2], R[3] = R[2], R[3], R[0], R[1]
+        C = [(R[i] ^ self.K[i + 4]) for i in range(4)]
+
+        ciphertext = []
+        for word in C:
+            ciphertext.extend([(word >> (8 * j)) & 0xFF for j in range(4)])
+        return bytes(ciphertext)
+
+    def _decrypt_block(self, ciphertext_bytes: bytes) -> bytes:
+        C = [sum([ciphertext_bytes[4 * i + j] << (8 * j) for j in range(4)]) for i in range(4)]
+        R = [0] * 4
+        R[2], R[3], R[0], R[1] = C[0] ^ self.K[4], C[1] ^ self.K[5], C[2] ^ self.K[6], C[3] ^ self.K[7]
+
+        for r in range(15, -1, -1):
+            R_in_0, R_in_1 = R[2], R[3]
+            F0, F1 = self._F(R_in_0, R_in_1, r)
+            R_in_2 = rol(R[0], 1) ^ F0
+            R_in_3 = ror(R[1] ^ F1, 1)
+            R[0], R[1], R[2], R[3] = R_in_0, R_in_1, R_in_2, R_in_3
+
+        P = [(R[i] ^ self.K[i]) for i in range(4)]
+
+        plaintext = []
+        for word in P:
+            plaintext.extend([(word >> (8 * j)) & 0xFF for j in range(4)])
+        return bytes(plaintext)
+
+    # ==========================================
+    # 3. WARSTWA UŻYTKOWA: PKCS#7 & Tryb CBC
+    # ==========================================
+    def _pad(self, data: bytes) -> bytes:
+        """Dopełnianie PKCS#7 do wielokrotności 16 bajtów."""
+        padding_len = 16 - (len(data) % 16)
+        return data + bytes([padding_len] * padding_len)
+
+    def _unpad(self, data: bytes) -> bytes:
+        """Usuwanie dopełnienia PKCS#7."""
+        padding_len = data[-1]
+        return data[:-padding_len]
+
+    def encrypt_cbc(self, plaintext: bytes, iv: bytes) -> bytes:
+        """Szyfrowanie danych o DOWOLNEJ długości w bezpiecznym trybie CBC."""
+        if len(iv) != 16: raise ValueError("IV musi mieć dokładnie 16 bajtów.")
+        padded_data = self._pad(plaintext)
+        ciphertext = b''
+        prev_block = iv
+
+        for i in range(0, len(padded_data), 16):
+            block = padded_data[i:i + 16]
+            xored_block = bytes(a ^ b for a, b in zip(block, prev_block))
+            encrypted_block = self._encrypt_block(xored_block)
+            ciphertext += encrypted_block
+            prev_block = encrypted_block
+
+        return ciphertext
+
+    def decrypt_cbc(self, ciphertext: bytes, iv: bytes) -> bytes:
+        """Deszyfrowanie danych w trybie CBC i automatyczne usuwanie paddingu."""
+        if len(iv) != 16: raise ValueError("IV musi mieć dokładnie 16 bajtów.")
+        if len(ciphertext) % 16 != 0: raise ValueError("Szyfrogram musi być wielokrotnością 16 bajtów.")
+
+        padded_plaintext = b''
+        prev_block = iv
+
+        for i in range(0, len(ciphertext), 16):
+            block = ciphertext[i:i + 16]
+            decrypted_block = self._decrypt_block(block)
+            xored_block = bytes(a ^ b for a, b in zip(decrypted_block, prev_block))
+            padded_plaintext += xored_block
+            prev_block = block
+
+        return self._unpad(padded_plaintext)

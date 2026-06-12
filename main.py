@@ -1,38 +1,36 @@
-# main.py
 import os
 from src.twofish import Twofish
 
 
 def main():
-    print("=== PROFESJONALNY SYSTEM KRYPTOGRAFICZNY TWOFISH (Tryb CBC) ===")
+    print("=== Twofish - profesjonalna implementacja ===")
 
-    # Krok 1: Inicjalizacja tajnego klucza (dokładnie 32 bajty = 256 bitów)
-    key = b"Tajny_Klucz_Bezpieczenstwo_2026!"
+    #1- inicjalizacja tajnego klucza (dokładnie 32 bajty = 256 bitów)
+    key = b"BardzoKocham_Bdan"
     cipher = Twofish(key)
 
-    # Krok 2: Generowanie losowego Wektora Inicjującego (IV) - wymagane do trybu CBC
+    # 2- generacja losowego Wektora Inicjującego (IV) - wymagane do trybu CBC
     # Dzięki IV ten sam tekst jawny zaszyfrowany tym samym kluczem da inny szyfrogram!
     iv = os.urandom(16)
 
-    # Krok 3: Wiadomość użytkownika (dowolna długość, nie musi mieć 16 znaków!)
-    plaintext = b"To jest bardzo dluga wiadomosc, ktora zostanie zabezpieczona za pomoca algorytmu Twofish i automatycznie dopelniona (PKCS#7)!"
+    #3- dowolna wiadomość użytkownika
+    plaintext = b"Ta wiadomosc zostanie zaszyfrownaa przez nasza implementacje algorytmu Twofish"
 
     print(f"\n[+] Klucz:        {key.decode('ascii', errors='ignore')}")
     print(f"[+] Tekst jawny:  {plaintext.decode('ascii')}")
 
-    # Proces szyfrowania
+    # szyfrowanie
     encrypted = cipher.encrypt_cbc(plaintext, iv)
-    print(f"\n[!] Szyfrogram (HEX): {encrypted.hex()}")
+    print(f"\n[!] Szyfrogram w hex: {encrypted.hex()}")
 
-    # Proces deszyfrowania
+    # odszyfrowanie
     decrypted = cipher.decrypt_cbc(encrypted, iv)
     print(f"[+] Odszyfrowane:     {decrypted.decode('ascii')}")
 
-    # Weryfikacja
     if plaintext == decrypted:
-        print("\n>>> SUKCES: Operacja szyfrowania i deszyfrowania powiodła się! <<<")
+        print("\n>>> Szyfrowanie i odszyfrowanie przebiegło poprawnie <<<")
     else:
-        print("\n>>> BŁĄD: Tekst odszyfrowany nie pasuje do oryginału! <<<")
+        print("\n>>> Przy szyfrowaniu i odszyfrowaniu wystąpił błąd <<<")
 
 
 if __name__ == "__main__":

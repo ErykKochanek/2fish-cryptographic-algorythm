@@ -1,9 +1,8 @@
-# src/twofish.py
 import os
 
 # ==========================================
-# 1. TABELE I ZMIENNE MATEMATYCZNE
-# ==========================================
+#  Tabele i zmienne, wszystko z góry ustalone przez twórców algorytmu
+# ==============================-============
 mds = [
     [0x01, 0xEF, 0x5B, 0x5B],
     [0x5B, 0xEF, 0xEF, 0x01],
@@ -18,23 +17,29 @@ rs = [
     [0xA4, 0x55, 0x87, 0x5A, 0x58, 0xDB, 0x9E, 0x03]
 ]
 
+#0xFFFFFFFF jest ogólnie po to żeby sie upewnić że liczba jest max 32 bitowa
+
+#przesunieca bitowe w lewo
 
 def rol(number, shift, bitLength=32):
     shift %= bitLength
     return ((number << shift) | (number >> (bitLength - shift))) & 0xFFFFFFFF
 
 
+#przesuniecie bitowe w prawo
 def ror(number, shift, bitLength=32):
     shift %= bitLength
     return ((number >> shift) | (number << (bitLength - shift))) & 0xFFFFFFFF
 
-
+#przesuniecie o 1 w prawo, dla wartości 4 bitowych, używane tylko do budowania Q
 def ror4(x):
     return ((x >> 1) | (x << 3)) & 0xF
 
 
+#stworzenie Q0 i Q1
 def _build_q(t0, t1, t2, t3):
     table = []
+    #dla każdej licby 0-256 wykonują sie ustalone operacje matematyczne
     for x in range(256):
         a0 = x >> 4
         b0 = x & 0xF
@@ -63,6 +68,8 @@ Q1 = _build_q(
 )
 
 
+#mnożenie w ciele GF(2^8)
+#poly jest do xorowania wyniku jak jest za duzy
 def gf_mult(a, b, poly):
     res = 0
     while a and b:
@@ -73,6 +80,7 @@ def gf_mult(a, b, poly):
     return res
 
 
+#mnożenie macierzy przez wektor, używane do dyfuzji
 def matrix_mult(matrix, vector, poly):
     result = []
     for row in matrix:
@@ -83,10 +91,20 @@ def matrix_mult(matrix, vector, poly):
     return result
 
 
+#funkcja h, używana i do szyfrowania danych i do generacji kluczy
 def h(X, L):
     k = len(L)
     y = [(X >> (8 * i)) & 0xFF for i in range(4)]
-    l = [[(L[i] >> (8 * j)) & 0xFF for j in range(4)] for i in range(k)]
+    l = []
+    for i in range(k):
+        key_word = L[i]
+        word_bytes = []
+        
+        for j in range(4):
+            current_byte = (key_word >> (8 * j)) & 0xFF
+            word_bytes.append(current_byte)
+            
+        l.append(word_bytes)
 
     if k == 4:
         y[0], y[1], y[2], y[3] = Q1[y[0]] ^ l[3][0], Q0[y[1]] ^ l[3][1], Q0[y[2]] ^ l[3][2], Q1[y[3]] ^ l[3][3]
@@ -103,11 +121,10 @@ def h(X, L):
 
 
 # ==========================================
-# 2. GŁÓWNA KLASA ALGORYTMU
+# Główna klasa algorytmu
 # ==========================================
 class Twofish:
-    """Profesjonalna implementacja algorytmu kryptograficznego Twofish."""
-
+        #inicjalizacja, bierze klucz jako bajty
     def __init__(self, key: bytes):
         """
         Inicjalizacja szyfru.
@@ -116,7 +133,7 @@ class Twofish:
         key_bytes = list(key)
         length = len(key_bytes)
 
-        # Integracja logiki dopasowania klucza (padding klucza zerami)
+        # integracja logiki dopasowania klucza (padding klucza zerami)
         if length <= 16:
             padded_key = key_bytes + [0] * (16 - length)
         elif length <= 24:
@@ -128,8 +145,12 @@ class Twofish:
 
         self.K, self.S = self._generate_subkeys(padded_key)
 
+
+    #generacja podkluczy
     def _generate_subkeys(self, M_bytes):
         k = len(M_bytes) // 8
+        #dzielenie klucza na slowa wybranej długości
+        #me-parzyste, mo - nieparzyste
         Me, Mo = [], []
         for i in range(k):
             Me.append(
@@ -155,15 +176,29 @@ class Twofish:
         return K, S
 
     def _F(self, R0, R1, r):
+        #wyznaczenie wartości słów
         T0 = h(R0, self.S)
         T1 = h(rol(R1, 8), self.S)
         F0 = (T0 + T1 + self.K[2 * r + 8]) % (2 ** 32)
         F1 = (T0 + 2 * T1 + self.K[2 * r + 9]) % (2 ** 32)
         return F0, F1
 
+    #szyfrowanie jednego bloku o długości 16 bajtów
     def _encrypt_block(self, plaintext_bytes: bytes) -> bytes:
-        P = [sum([plaintext_bytes[4 * i + j] << (8 * j) for j in range(4)]) for i in range(4)]
-        R = [P[i] ^ self.K[i] for i in range(4)]
+        P = []
+        for i in range(0, 16, 4):
+            b0 = plaintext_bytes[i]
+            b1 = plaintext_bytes[i + 1]
+            b2 = plaintext_bytes[i + 2]
+            b3 = plaintext_bytes[i + 3]
+
+            word = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+            P.append(word)
+
+        R = []
+        for i in range(4):
+            xor = P[i] ^ self.K[i]
+            R.append(xor)
 
         for r in range(16):
             F0, F1 = self._F(R[0], R[1], r)
@@ -175,15 +210,35 @@ class Twofish:
         R[0], R[1], R[2], R[3] = R[2], R[3], R[0], R[1]
         C = [(R[i] ^ self.K[i + 4]) for i in range(4)]
 
-        ciphertext = []
+        ciphertext_list = []
         for word in C:
-            ciphertext.extend([(word >> (8 * j)) & 0xFF for j in range(4)])
-        return bytes(ciphertext)
+            b0 = word & 0xFF
+            b1 = (word >> 8) & 0xFF
+            b2 = (word >> 16) & 0xFF
+            b3 = (word >> 24) & 0xFF
+            
+            # Dodajemy je po kolei do naszej listy wynikowej
+            ciphertext_list.extend([b0, b1, b2, b3])
 
+        return bytes(ciphertext_list)
+
+    #odszyfrowanie, idzie od tyłu, 2fish symetryczny
     def _decrypt_block(self, ciphertext_bytes: bytes) -> bytes:
-        C = [sum([ciphertext_bytes[4 * i + j] << (8 * j) for j in range(4)]) for i in range(4)]
+        C = []
+        for i in range(0, 16, 4):
+            b0 = ciphertext_bytes[i]
+            b1 = ciphertext_bytes[i + 1]
+            b2 = ciphertext_bytes[i + 2]
+            b3 = ciphertext_bytes[i + 3]
+            
+            word = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+            C.append(word)
+
         R = [0] * 4
-        R[2], R[3], R[0], R[1] = C[0] ^ self.K[4], C[1] ^ self.K[5], C[2] ^ self.K[6], C[3] ^ self.K[7]
+        R[2] = C[0] ^ self.K[4]
+        R[3] = C[1] ^ self.K[5]
+        R[0] = C[2] ^ self.K[6]
+        R[1] = C[3] ^ self.K[7]
 
         for r in range(15, -1, -1):
             R_in_0, R_in_1 = R[2], R[3]
@@ -192,26 +247,39 @@ class Twofish:
             R_in_3 = ror(R[1] ^ F1, 1)
             R[0], R[1], R[2], R[3] = R_in_0, R_in_1, R_in_2, R_in_3
 
-        P = [(R[i] ^ self.K[i]) for i in range(4)]
+        P = []
+        for i in range(4):
+            xor = R[i] ^ self.K[i]
+            P.append(xor)
 
-        plaintext = []
+        plaintext_list = []
         for word in P:
-            plaintext.extend([(word >> (8 * j)) & 0xFF for j in range(4)])
-        return bytes(plaintext)
+            b0 = word & 0xFF
+            b1 = (word >> 8) & 0xFF
+            b2 = (word >> 16) & 0xFF
+            b3 = (word >> 24) & 0xFF
+            plaintext_list.extend([b0, b1, b2, b3])
+
+        return bytes(plaintext_list)
 
     # ==========================================
-    # 3. WARSTWA UŻYTKOWA: PKCS#7 & Tryb CBC
+    # Warstwa użytkowa -  padding,  CBC
     # ==========================================
+    #padding
+    #dopełnia bajty do 16, wypełnia to liczbą oryginalnie brakujących bajtów
     def _pad(self, data: bytes) -> bytes:
         """Dopełnianie PKCS#7 do wielokrotności 16 bajtów."""
         padding_len = 16 - (len(data) % 16)
         return data + bytes([padding_len] * padding_len)
 
+    #odpadowanie, patrzu na ostatnią liczbe zapadowanego słowa i usuwa tyle bajtów ile jest w ostatniej liczbie
     def _unpad(self, data: bytes) -> bytes:
         """Usuwanie dopełnienia PKCS#7."""
         padding_len = data[-1]
         return data[:-padding_len]
 
+    #CBC (cypher block chaining), szyfrowanie tekstu dowolnej dlugości bo CBC jest bezpieczne
+    #zmiana szyfrowanego bloku przy użyciu poprzedniego
     def encrypt_cbc(self, plaintext: bytes, iv: bytes) -> bytes:
         """Szyfrowanie danych o DOWOLNEJ długości w bezpiecznym trybie CBC."""
         if len(iv) != 16: raise ValueError("IV musi mieć dokładnie 16 bajtów.")

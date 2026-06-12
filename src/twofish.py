@@ -21,6 +21,7 @@ rs = [
 
 #przesunieca bitowe w lewo
 
+#przesunieca bitowe w lewo
 def rol(number, shift, bitLength=32):
     shift %= bitLength
     return ((number << shift) | (number >> (bitLength - shift))) & 0xFFFFFFFF
@@ -32,6 +33,7 @@ def ror(number, shift, bitLength=32):
     return ((number >> shift) | (number << (bitLength - shift))) & 0xFFFFFFFF
 
 #przesuniecie o 1 w prawo, dla wartości 4 bitowych, używane tylko do budowania Q
+#przesuniecie o 1 w prawo, dla wartości 4 bitowych, używane tylko do budowania Q
 def ror4(x):
     return ((x >> 1) | (x << 3)) & 0xF
 
@@ -39,6 +41,7 @@ def ror4(x):
 #stworzenie Q0 i Q1
 def _build_q(t0, t1, t2, t3):
     table = []
+    #dla każdej licby 0-256 wykonują sie ustalone operacje matematyczne
     #dla każdej licby 0-256 wykonują sie ustalone operacje matematyczne
     for x in range(256):
         a0 = x >> 4
@@ -111,6 +114,7 @@ def h(X, L):
     if k >= 3:
         y[0], y[1], y[2], y[3] = Q1[y[0]] ^ l[2][0], Q1[y[1]] ^ l[2][1], Q0[y[2]] ^ l[2][2], Q0[y[3]] ^ l[2][3]
 
+    #operacje wyznaczające sboxy
     y[0] = Q1[Q0[Q0[y[0]] ^ l[1][0]] ^ l[0][0]]
     y[1] = Q0[Q0[Q1[y[1]] ^ l[1][1]] ^ l[0][1]]
     y[2] = Q1[Q1[Q0[y[2]] ^ l[1][2]] ^ l[0][2]]
@@ -134,6 +138,7 @@ class Twofish:
         length = len(key_bytes)
 
         # integracja logiki dopasowania klucza (padding klucza zerami)
+        # integracja logiki dopasowania klucza (padding klucza zerami)
         if length <= 16:
             padded_key = key_bytes + [0] * (16 - length)
         elif length <= 24:
@@ -151,13 +156,17 @@ class Twofish:
         k = len(M_bytes) // 8
         #dzielenie klucza na slowa wybranej długości
         #me-parzyste, mo - nieparzyste
+        #dzielenie klucza na slowa wybranej długości
+        #me-parzyste, mo - nieparzyste
         Me, Mo = [], []
+        #pętla do generacji podkluczy
         for i in range(k):
             Me.append(
                 M_bytes[8 * i] | (M_bytes[8 * i + 1] << 8) | (M_bytes[8 * i + 2] << 16) | (M_bytes[8 * i + 3] << 24))
             Mo.append(M_bytes[8 * i + 4] | (M_bytes[8 * i + 5] << 8) | (M_bytes[8 * i + 6] << 16) | (
                         M_bytes[8 * i + 7] << 24))
 
+        #do sboxów
         S = []
         for i in range(k):
             m_slice = M_bytes[8 * i: 8 * i + 8]
@@ -165,6 +174,7 @@ class Twofish:
             S.append(r[0] | (r[1] << 8) | (r[2] << 16) | (r[3] << 24))
         S = S[::-1]
 
+        #do podkluczy
         K = []
         rho = 0x01010101
         for i in range(20):
@@ -175,7 +185,9 @@ class Twofish:
 
         return K, S
 
+    #funkcja F
     def _F(self, R0, R1, r):
+        #wyznaczenie wartości słów
         #wyznaczenie wartości słów
         T0 = h(R0, self.S)
         T1 = h(rol(R1, 8), self.S)
@@ -208,7 +220,7 @@ class Twofish:
             R[0], R[1] = R_next_0, R_next_1
 
         R[0], R[1], R[2], R[3] = R[2], R[3], R[0], R[1]
-        C = [(R[i] ^ self.K[i + 4]) for i in range(4)]
+        C = [(R[i] ^ self.K[i + 4]) for i in range(4)] #wybielanie końćowe
 
         ciphertext_list = []
         for word in C:
@@ -268,20 +280,21 @@ class Twofish:
     #padding
     #dopełnia bajty do 16, wypełnia to liczbą oryginalnie brakujących bajtów
     def _pad(self, data: bytes) -> bytes:
-        """Dopełnianie PKCS#7 do wielokrotności 16 bajtów."""
+        """Padding do wielokrotności 16 bajtów."""
         padding_len = 16 - (len(data) % 16)
         return data + bytes([padding_len] * padding_len)
 
     #odpadowanie, patrzu na ostatnią liczbe zapadowanego słowa i usuwa tyle bajtów ile jest w ostatniej liczbie
+    #odpadowanie, patrzu na ostatnią liczbe zapadowanego słowa i usuwa tyle bajtów ile jest w ostatniej liczbie
     def _unpad(self, data: bytes) -> bytes:
-        """Usuwanie dopełnienia PKCS#7."""
+        """Usuwanie dopełnienia paddingu."""
         padding_len = data[-1]
         return data[:-padding_len]
 
     #CBC (cypher block chaining), szyfrowanie tekstu dowolnej dlugości bo CBC jest bezpieczne
     #zmiana szyfrowanego bloku przy użyciu poprzedniego
     def encrypt_cbc(self, plaintext: bytes, iv: bytes) -> bytes:
-        """Szyfrowanie danych o DOWOLNEJ długości w bezpiecznym trybie CBC."""
+        """Szyfrowanie danych o dowolnej długości."""
         if len(iv) != 16: raise ValueError("IV musi mieć dokładnie 16 bajtów.")
         padded_data = self._pad(plaintext)
         ciphertext = b''

@@ -1,4 +1,3 @@
-# test_vectors.py
 from src.twofish import Twofish
 
 
